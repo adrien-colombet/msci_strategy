@@ -17,7 +17,7 @@ This web application helps you analyze ETF investment strategies using historica
 
 1. Clone this repository:
    ```
-   git clone <repository-url>
+   git clone https://github.com/adrien-colombet/msci_strategy.git
    cd etf-investment-app
    ```
 
