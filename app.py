@@ -28,7 +28,7 @@ ETF_OPTIONS = {
 import yfinance as yf
 
 # Function to fetch ETF data
-def fetch_etf_data(ticker, period="5y", interval="1wk"):
+def fetch_etf_data(ticker, period="20y", interval="1wk"):
     try:
         print(f"Fetching data for {ticker} with period='{period}' and interval='{interval}'...")
 
@@ -65,7 +65,6 @@ def calculate_ma(data, ma_length):
     
     df = data.copy()
     df['MA'] = df['Close'].rolling(window=ma_length).mean()
-    #df = df.where(df.notna(), None)
     df = df.fillna(0)
     return df
 
@@ -84,11 +83,6 @@ def simulate_investment(etf_data, cash_data, investment_amount, start_date, freq
     
     # Sort by date
     df = df.sort_index()
-    
-    # Calculate moving average if using strategy
-    if use_ma_strategy:
-        df['MA'] = df['Close'].rolling(window=ma_length).mean()
-        df = df.fillna(0)
     
     # Initialize investment tracking
     results = []
@@ -111,7 +105,7 @@ def simulate_investment(etf_data, cash_data, investment_amount, start_date, freq
         # Check if we should invest in ETF or cash
         invest_in_etf = True
         if use_ma_strategy:
-            ma_value = df.loc[investment_date, 'MA']
+            ma_value = df.loc[investment_date, 'MA'].iloc[0]
             if not pd.isna(ma_value):
                 invest_in_etf = price > ma_value
         
