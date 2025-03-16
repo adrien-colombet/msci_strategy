@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETF Investment Strategy</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.3.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1"></script>
+    <style>
+        body { padding: 20px; }
+        .container { max-width: 1200px; }
+        .chart-container { 
+            height: 500px;
+            margin-bottom: 30px;
+        }
+        .form-group { margin-bottom: 15px; }
+        .results-card {
+            margin-top: 20px;
+            display: none;
+        }
+        .spinner-border {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mb-4">ETF Investment Strategy Calculator</h1>
+        
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">Investment Parameters</div>
+                    <div class="card-body">
+                        <form id="investmentForm">
+                            <div class="form-group">
+                                <label for="etfSelect">Select MSCI ETF:</label>
+                                <select class="form-control" id="etfSelect">
+                                    {% for ticker, name in etf_options.items() %}
+                                    <option value="{{ ticker }}">{{ name }} ({{ ticker }})</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="investmentAmount">Monthly Investment (€):</label>
+                                <input type="number" class="form-control" id="investmentAmount" value="100" min="1">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="startDate">Start Date:</label>
+                                <input type="date" class="form-control" id="startDate">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="maLength">Moving Average Length (weeks):</label>
+                                <input type="number" class="form-control" id="maLength" value="10" min="1" max="52">
+                            </div>
+                            
+                            <div class="form-check mb-3">
+                                <input type="checkbox" class="form-check-input" id="useMAStrategy">
+                                <label class="form-check-label" for="useMAStrategy">Use Moving Average Strategy</label>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary w-100">
+                                <span class="spinner-border spinner-border-sm" id="loadingSpinner" role="status" aria-hidden="true"></span>
+                                Calculate Strategy
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                
+                <div class="card results-card" id="resultsCard">
+                    <div class="card-header">Strategy Results</div>
+                    <div class="card-body">
+                        <table class="table table-sm">
+                            <tbody>
+                                <tr>
+                                    <th>Total Invested:</th>
+                                    <td id="totalInvested">€0.00</td>
+                                </tr>
+                                <tr>
+                                    <th>Current Value:</th>
+                                    <td id="currentValue">€0.00</td>
+                                </tr>
+                                <tr>
+                                    <th>Total Return:</th>
+                                    <td id="totalReturn">0.00%</td>
+                                </tr>
+                                <tr>
+                                    <th>ETF Shares:</th>
+                                    <td id="totalShares">0</td>
+                                </tr>
+                                <tr>
+                                    <th>Cash Balance:</th>
+                                    <td id="cashBalance">€0.00</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-8">
+                <div class="card mb-4">
+                    <div class="card-header">ETF Price & Moving Average</div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="priceChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">Portfolio Value Over Time</div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="portfolioChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Initialize charts
+        let priceChart = null;
+        let portfolioChart = null;
+        
+        // Set default date to 5 years ago
+        document.addEventListener('DOMContentLoaded', function() {
+            const startDateInput = document.getElementById('startDate');
+            const fiveYearsAgo = new Date();
+            fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5);
+            startDateInput.value = fiveYearsAgo.toISOString().split('T')[0];
+            
+            // Create empty charts
+            createEmptyCharts();
+            
+            // Add form submit event
+            document.getElementById('investmentForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                runSimulation();
+            });
+        });
+        
+        function createEmptyCharts() {
+            const priceCtx = document.getElementById('priceChart').getContext('2d');
+            priceChart = new Chart(priceCtx, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        {
+                            label: 'ETF Price',
+                            borderColor: 'rgb(75, 192, 192)',
+                            data: []
+                        },
+                        {
+                            label: 'Moving Average',
+                            borderColor: 'rgb(255, 99, 132)',
+                            borderDash: [5, 5],
+                            data: []
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'month'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            const portfolioCtx = document.getElementById('portfolioChart').getContext('2d');
+            portfolioChart = new Chart(portfolioCtx, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        {
+                            label: 'Portfolio Value',
+                            borderColor: 'rgb(54, 162, 235)',
+                            data: []
+                        },
+                        {
+                            label: 'Total Invested',
+                            borderColor: 'rgb(153, 102, 255)',
+                            borderDash: [5, 5],
+                            data: []
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'month'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Value (€)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        async function fetchETFData() {
+            console.log("Fetching ETF data...");
+            const ticker = document.getElementById('etfSelect').value;
+            const maLength = document.getElementById('maLength').value;
+            
+            try {
+                const response = await fetch('/fetch_etf_data', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ ticker, ma_length: maLength }),
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to fetch ETF data');
+                }
+                
+                const data = await response.json();
+                console.log("ETF data received:", data);
+                return data;
+            } catch (error) {
+                console.error('Error fetching ETF data:', error);
+                alert('Failed to fetch ETF data: ' + error.message);
+                return null;
+            }
+        }
+        
+        async function runSimulation() {
+            console.log("Starting simulation...");
+            // Show loading spinner
+            const spinner = document.getElementById('loadingSpinner');
+            spinner.style.display = 'inline-block';
+            
+            try {
+                // Gather form data
+                const ticker = document.getElementById('etfSelect').value;
+                const investment_amount = parseFloat(document.getElementById('investmentAmount').value);
+                const start_date = document.getElementById('startDate').value;
+                const ma_length = parseInt(document.getElementById('maLength').value);
+                const use_ma_strategy = document.getElementById('useMAStrategy').checked;
+                
+                console.log("Form data:", {
+                    ticker, 
+                    investment_amount, 
+                    start_date, 
+                    ma_length, 
+                    use_ma_strategy
+                });
+                
+                // Fetch ETF data and display price chart
+                const etfData = await fetchETFData();
+                if (!etfData) {
+                    throw new Error('Failed to fetch ETF data');
+                }
+                
+                console.log("Updating price chart...");
+                updatePriceChart(etfData);
+                
+                // Run investment simulation
+                console.log("Running investment simulation...");
+                const simulationResponse = await fetch('/simulate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        ticker,
+                        investment_amount,
+                        start_date,
+                        frequency_months: 1,
+                        ma_length,
+                        use_ma_strategy
+                    }),
+                });
+                
+                if (!simulationResponse.ok) {
+                    throw new Error('Failed to run simulation');
+                }
+                
+                const simulationResults = await simulationResponse.json();
+                console.log("Simulation results:", simulationResults);
+                
+                updatePortfolioChart(simulationResults);
+                updateResultsCard(simulationResults);
+                
+                // Show results card
+                document.getElementById('resultsCard').style.display = 'block';
+            } catch (error) {
+                console.error('Error in simulation:', error);
+                alert('Simulation failed: ' + error.message);
+            } finally {
+                // Hide loading spinner
+                spinner.style.display = 'none';
+            }
+        }
+        
+        function updatePriceChart(data) {
+            console.log("Updating price chart with data:", data);
+            // Check if data is valid
+            if (!data || !data.dates || !data.close || !data.ma) {
+                console.error("Invalid ETF data structure:", data);
+                return;
+            }
+            
+            // Convert data to chart format
+            const priceData = data.dates.map((date, i) => ({
+                x: date,
+                y: data.close[i]
+            }));
+            
+            const maData = data.dates.map((date, i) => ({
+                x: date,
+                y: data.ma[i]
+            }));
+            
+            // Update chart data
+            priceChart.data.datasets[0].data = priceData;
+            priceChart.data.datasets[1].data = maData;
+            priceChart.update();
+            
+            console.log("Price chart updated");
+        }
+        
+        function updatePortfolioChart(results) {
+            console.log("Updating portfolio chart with results:", results);
+            if (!results || !results.history) {
+                console.error("Invalid portfolio results:", results);
+                return;
+            }
+            
+            // Convert history to chart format
+            const portfolioData = results.history.map(item => ({
+                x: item.date,
+                y: item.portfolio_value
+            }));
+            
+            const investedData = results.history.map(item => ({
+                x: item.date,
+                y: item.total_invested
+            }));
+            
+            // Update chart data
+            portfolioChart.data.datasets[0].data = portfolioData;
+            portfolioChart.data.datasets[1].data = investedData;
+            portfolioChart.update();
+            
+            console.log("Portfolio chart updated");
+        }
+        
+        function updateResultsCard(results) {
+            console.log("Updating results card with data:", results);
+            if (!results || !results.investments || results.investments.length === 0) {
+                console.error("No investment data to display");
+                return;
+            }
+            
+            // Get the last investment record
+            const lastInvestment = results.investments[results.investments.length - 1];
+            
+            // Update the results card
+            document.getElementById('totalInvested').textContent = '€' + lastInvestment.total_invested.toFixed(2);
+            document.getElementById('currentValue').textContent = '€' + lastInvestment.total_value.toFixed(2);
+            
+            const returnPercentage = ((lastInvestment.total_value / lastInvestment.total_invested) - 1) * 100;
+            document.getElementById('totalReturn').textContent = returnPercentage.toFixed(2) + '%';
+            
+            document.getElementById('totalShares').textContent = lastInvestment.total_shares.toFixed(4);
+            document.getElementById('cashBalance').textContent = '€' + lastInvestment.cash_balance?.toFixed(2) || '0.00';
+            
+            console.log("Results card updated");
+        }
+    </script>
+</body>
+</html>

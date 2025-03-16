@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import json
 import os
 from dotenv import load_dotenv
+import requests
 
 # Load environment variables
 load_dotenv()
@@ -24,20 +25,38 @@ ETF_OPTIONS = {
 }
 
 # Function to fetch ETF data
+import yfinance as yf
+
+# Function to fetch ETF data
 def fetch_etf_data(ticker, period="5y", interval="1wk"):
     try:
+        print(f"Fetching data for {ticker} with period='{period}' and interval='{interval}'...")
+
+        # Attempt to download data
+        yf.enable_debug_mode()
         data = yf.download(ticker, period=period, interval=interval)
         if data.empty:
+            print(f"No data returned for {ticker}. The dataset is empty.")
             return None
+        
+        print(f"Data successfully fetched for {ticker}.")
         
         # Convert index to string dates for JSON serialization
         data.index = data.index.strftime('%Y-%m-%d')
+        print("Index successfully converted to string dates.")
         
-        # Calculate moving averages
+        # Debugging: Print the index after conversion
+        print("Converted index sample:")
+        print(data.index[:5])
+        
+        # Calculate moving averages (if applicable)
+        # Placeholder comment, assuming it's calculated elsewhere
+        print(f"Returning data for {ticker}.")
         return data
     except Exception as e:
         print(f"Error fetching data for {ticker}: {e}")
         return None
+
 
 # Function to calculate moving average
 def calculate_ma(data, ma_length):
@@ -46,6 +65,8 @@ def calculate_ma(data, ma_length):
     
     df = data.copy()
     df['MA'] = df['Close'].rolling(window=ma_length).mean()
+    #df = df.where(df.notna(), None)
+    df = df.fillna(0)
     return df
 
 # Function to perform investment simulation
@@ -67,6 +88,7 @@ def simulate_investment(etf_data, cash_data, investment_amount, start_date, freq
     # Calculate moving average if using strategy
     if use_ma_strategy:
         df['MA'] = df['Close'].rolling(window=ma_length).mean()
+        df = df.fillna(0)
     
     # Initialize investment tracking
     results = []
@@ -77,14 +99,14 @@ def simulate_investment(etf_data, cash_data, investment_amount, start_date, freq
     # Start date for investments
     current_date = pd.to_datetime(start_date)
     end_date = df.index.max()
-    
+
     while current_date <= end_date:
         # Find the closest trading day (week)
         investment_date = df.index[df.index >= current_date].min()
         if pd.isna(investment_date):
             break
             
-        price = df.loc[investment_date, 'Close']
+        price = df.loc[investment_date, 'Close'].iloc[0]
         
         # Check if we should invest in ETF or cash
         invest_in_etf = True
@@ -145,11 +167,10 @@ def simulate_investment(etf_data, cash_data, investment_amount, start_date, freq
         if last_investment:
             portfolio_history.append({
                 'date': date.strftime('%Y-%m-%d'),
-                'price': row['Close'],
-                'portfolio_value': last_investment['total_shares'] * row['Close'] + last_investment['cash_balance'],
+                'price': row['Close'].iloc[0],
+                'portfolio_value': last_investment['total_shares'] * row['Close'].iloc[0] + last_investment['cash_balance'],
                 'total_invested': last_investment['total_invested']
             })
-    
     return {
         'investments': results,
         'history': portfolio_history
@@ -159,30 +180,39 @@ def simulate_investment(etf_data, cash_data, investment_amount, start_date, freq
 def index():
     return render_template('index.html', etf_options=ETF_OPTIONS)
 
+# Add this to your Flask route to ensure proper response format
 @app.route('/fetch_etf_data', methods=['POST'])
 def get_etf_data():
     ticker = request.json.get('ticker')
     ma_length = int(request.json.get('ma_length', 10))
     
+    print(f"Backend received request for ticker: {ticker}, MA length: {ma_length}")
+    
     data = fetch_etf_data(ticker)
     if data is None:
+        print("Failed to fetch ETF data")
         return jsonify({'error': 'Failed to fetch ETF data'}), 500
     
     # Calculate moving average
     data_with_ma = calculate_ma(data, ma_length)
     if data_with_ma is None:
+        print("Failed to calculate moving average")
         return jsonify({'error': 'Failed to calculate moving average'}), 500
     
     # Convert to dictionary for JSON response
     result = {
         'dates': data_with_ma.index.tolist(),
-        'open': data_with_ma['Open'].tolist(),
-        'high': data_with_ma['High'].tolist(),
-        'low': data_with_ma['Low'].tolist(),
-        'close': data_with_ma['Close'].tolist(),
-        'volume': data_with_ma['Volume'].tolist(),
-        'ma': data_with_ma['MA'].tolist()
+        'open': data_with_ma[('Open', ticker)].tolist(),
+        'high': data_with_ma[('High', ticker)].tolist(),
+        'low': data_with_ma[('Low', ticker)].tolist(),
+        'close': data_with_ma[('Close', ticker)].tolist(),
+        'volume': data_with_ma[('Volume', ticker)].tolist(),
+        'ma': data_with_ma[('MA', '')].tolist()
     }
+    
+    print("Data sample for first 3 records:")
+    for i in range(min(3, len(result['dates']))):
+        print(f"Date: {result['dates'][i]}, Close: {result['close'][i]}, MA: {result['ma'][i]}")
     
     return jsonify(result)
 
@@ -217,12 +247,18 @@ def run_simulation():
         ma_length, 
         use_ma_strategy
     )
-    
+
+    try:
+        json.dumps(simulation_results)
+        print("Data is JSON serializable.")
+    except TypeError as e:
+        print(f"JSON serialization error: {e}")
+
     if simulation_results is None:
         return jsonify({'error': 'Failed to run simulation'}), 500
     
     return jsonify(simulation_results)
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 8080))
     app.run(debug=True, host='0.0.0.0', port=port)
