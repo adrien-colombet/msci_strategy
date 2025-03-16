@@ -88,9 +88,9 @@
                                 <tr>
                                     <th>Total Return:</th>
                                     <td id="totalReturn">0.00%</td>
-                                </tr>investmentYears
+                                </tr>
                                 <tr>
-                                    <th>investment Period:</th>
+                                    <th>Investment Period:</th>
                                     <td id="investmentYears">0.00</td>
                                 </tr>
                                 <tr>
@@ -105,6 +105,11 @@
                                     <th>Cash Balance:</th>
                                     <td id="cashBalance">€0.00</td>
                                 </tr>
+                                <tr>
+                                    <th>Maximum Drawdown:</th>
+                                    <td id="maxDrawdown">0.00%</td>
+                                </tr>
+                            </tr>
                             </tbody>
                         </table>
                     </div>
@@ -379,65 +384,62 @@
         }
         
         function updateResultsCard(results) {
-    console.log("Updating results card with data:", results); // Log input data
-    if (!results || !results.investments || results.investments.length === 0) {
-        console.error("No investment data to display");
-        return;
-    }
-
-    // Get the last investment record
-    const lastInvestment = results.investments[results.investments.length - 1];
-        console.log("Last investment record:", lastInvestment);
-
-        // Update the results card
-        try {
+            console.log("Updating results card with data:", results);
+            if (!results || !results.investments || results.investments.length === 0) {
+                console.error("No investment data to display");
+                return;
+            }
+            
+            // Get the last investment record
+            const lastInvestment = results.investments[results.investments.length - 1];
+            
+            // Update the results card
             document.getElementById('totalInvested').textContent = '€' + lastInvestment.total_invested.toFixed(2);
-            console.log("Updated total invested:", lastInvestment.total_invested);
-
             document.getElementById('currentValue').textContent = '€' + lastInvestment.total_value.toFixed(2);
-            console.log("Updated current value:", lastInvestment.total_value);
-
+            
             const returnPercentage = ((lastInvestment.total_value / lastInvestment.total_invested) - 1) * 100;
             document.getElementById('totalReturn').textContent = returnPercentage.toFixed(2) + '%';
-            console.log("Calculated and updated return percentage:", returnPercentage);
-        } catch (error) {
-            console.error("Error updating investment details:", error);
-        }
-
-        // Calculate annual return (CAGR)
-        try {
+            
+            // Calculate annual return (CAGR)
             const firstInvestmentDate = new Date(results.investments[0].date);
-            console.log("First investment date:", firstInvestmentDate);
-
             const lastInvestmentDate = new Date(lastInvestment.date);
-            console.log("Last investment date:", lastInvestmentDate);
-
             const investmentYears = (lastInvestmentDate - firstInvestmentDate) / (365 * 24 * 60 * 60 * 1000);
-            document.getElementById('investmentYears').textContent = investmentYears.toFixed(2) + "y";
-            console.log("Investment duration in years:", investmentYears);
-
-            // Calculate CAGR
+            
+            // Calculate CAGR: (Final Value / Initial Investment) ^ (1 / years) - 1
+            // Using Math.max to ensure we don't divide by zero if same-day calculation
             const annualReturn = (Math.pow((lastInvestment.total_value / lastInvestment.total_invested), 1 / Math.max(investmentYears, 0.01)) - 1) * 100;
+            
+            // Add the annual return to the results card
             document.getElementById('annualReturn').textContent = annualReturn.toFixed(2) + '%';
-            console.log("Calculated and updated annual return (CAGR):", annualReturn);
-        } catch (error) {
-            console.error("Error calculating annual return:", error);
-        }
-
-        // Update total shares and cash balance
-        try {
+            
+            // Calculate maximum drawdown
+            let maxDrawdown = 0;
+            let peak = 0;
+            
+            // Extract portfolio values from history
+            const portfolioHistory = results.history.map(item => item.portfolio_value);
+            
+            // Calculate maximum drawdown
+            for (let i = 0; i < portfolioHistory.length; i++) {
+                if (portfolioHistory[i] > peak) {
+                    peak = portfolioHistory[i];
+                }
+                
+                const drawdown = (peak - portfolioHistory[i]) / peak;
+                if (drawdown > maxDrawdown) {
+                    maxDrawdown = drawdown;
+                }
+            }
+            
+            // Convert to percentage and display
+            const maxDrawdownPercentage = maxDrawdown * 100;
+            document.getElementById('maxDrawdown').textContent = maxDrawdownPercentage.toFixed(2) + '%';
+            
             document.getElementById('totalShares').textContent = lastInvestment.total_shares.toFixed(4);
-            console.log("Updated total shares:", lastInvestment.total_shares);
-
-            const cashBalance = lastInvestment.cash_balance ?? 0.00; // Handle undefined cash balance
-            document.getElementById('cashBalance').textContent = '€' + cashBalance.toFixed(2);
-            console.log("Updated cash balance:", cashBalance);
-        } catch (error) {
-            console.error("Error updating shares or cash balance:", error);
+            document.getElementById('cashBalance').textContent = '€' + lastInvestment.cash_balance?.toFixed(2) || '0.00';
+            
+            console.log("Results card updated");
         }
-
-        console.log("Results card updated successfully");
-    }
 
     </script>
 </body>

@@ -107,7 +107,7 @@ def simulate_investment(etf_data, cash_data, investment_amount, start_date, freq
         if use_ma_strategy:
             ma_value = df.loc[investment_date, 'MA'].iloc[0]
             if not pd.isna(ma_value):
-                invest_in_etf = price > ma_value
+                invest_in_etf = price < ma_value
         
         if invest_in_etf:
             # Calculate shares to buy
